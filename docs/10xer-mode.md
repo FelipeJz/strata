@@ -507,10 +507,16 @@ bookmark or unavailable directory reports an error without navigating.
 The footer shows the armed prefix. The **m** menu offers all letters for saving;
 the **'** menu lists only saved letters, each beside its full directory path.
 With no saved bookmarks, no options menu is shown. **Esc** cancels;
-unknown or modified second keys cancel without running another command. Text
-fields keep these keys as ordinary text, and the default keyboard map is
-unchanged. The file chooser does not save or open letter bookmarks. In a media
-preview, **m** still mutes; return to the listing before saving a bookmark.
+unknown or modified second keys cancel without running another command.
+After choosing a letter, the jump stays pending while its directory is checked.
+**Esc** or another command key cancels that pending jump without changing the
+listing, selection, or preview; changing the selection also cancels it. Only a
+successful check navigates: missing, unreadable, unavailable, or timed-out
+folders leave the current directory intact.
+Text fields keep these keys as ordinary text, and the default keyboard map is
+unchanged. The file chooser does not save or open letter bookmarks. Document
+and archive previews swallow both bookmark prefixes. In a media preview,
+**m** still mutes; return to the listing before using bookmarks.
 
 ## Prompts
 

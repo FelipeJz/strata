@@ -17,7 +17,6 @@ use super::{Dispatcher, KeyResult};
 use crate::{
     app::Browser,
     model::Location,
-    services::LocationValidationError,
     ui::{
         keys::{KeyPress, bindings::*},
         tenxer_mode::{Chord, Prompt},
@@ -147,6 +146,14 @@ impl Dispatcher {
         Some(Propagation::Stop)
     }
 
+    pub(super) fn cancel_pending_bookmark(&self, press: &KeyPress) -> bool {
+        if self.bookmark_pending.get() && !press.is_modifier() {
+            self.shortcuts.cancel_chord();
+            return true;
+        }
+        false
+    }
+
     pub(super) fn arm_bookmark_go(&self) {
         self.shortcuts.arm_chord(Chord::BookmarkGo);
         let shortcuts = self.shortcuts.clone();
@@ -180,10 +187,13 @@ impl Dispatcher {
                         .collect();
                     shortcuts.arm_chord_with(Chord::BookmarkGo, rows);
                 }
-                Err(error) => shortcuts.show_feedback(&rust_i18n::t!(
-                    "Could not access bookmarks: %{error}",
-                    error = crate::services::io_error_detail(&error)
-                )),
+                Err(error) => {
+                    shortcuts.cancel_chord();
+                    shortcuts.show_feedback(&rust_i18n::t!(
+                        "Could not access bookmarks: %{error}",
+                        error = crate::services::io_error_detail(&error)
+                    ));
+                }
             }
         });
     }
@@ -208,14 +218,15 @@ impl Dispatcher {
             return true;
         }
         let weak_browser = Rc::downgrade(browser);
-        let generation = if chord == Chord::BookmarkGo {
-            browser.bump_navigation_generation()
-        } else {
-            browser.navigation_generation()
-        };
+        let generation = browser.navigation_generation();
         let view = self.view.clone();
         let origin = directory.clone();
         let revision = self.bookmark_revision.clone();
+        let pending = self.bookmark_pending.clone();
+        if chord == Chord::BookmarkGo {
+            self.shortcuts.arm_chord_with(Chord::BookmarkGo, Vec::new());
+            pending.set(true);
+        }
         let expected = revision.get();
         let shortcuts = self.shortcuts.clone();
         let preferences = self.type_to_search.preferences.clone();
@@ -230,25 +241,30 @@ impl Dispatcher {
                 crate::services::letter_bookmarks::get(letter).await
             };
             let unavailable = if let Ok(Some(path)) = &result {
-                glib::future_with_timeout(crate::adapters::mount_lanes::STALLED_AFTER, async {
-                    match crate::adapters::probes::folder(path).await {
-                        Err(LocationValidationError::NotDirectory) => true,
-                        Err(LocationValidationError::Missing) => {
-                            crate::adapters::probes::folder_was_deleted(path).await
-                        }
-                        _ => false,
-                    }
-                })
-                .await
-                .unwrap_or(false)
+                !matches!(
+                    glib::future_with_timeout(
+                        crate::adapters::mount_lanes::STALLED_AFTER,
+                        crate::adapters::probes::folder(path),
+                    )
+                    .await,
+                    Ok(Ok(()))
+                )
             } else {
                 false
             };
             let Some(browser) = weak_browser.upgrade() else {
                 return;
             };
-            if revision.get() != expected
-                || browser.navigation_generation() != generation
+            if revision.get() != expected {
+                return;
+            }
+            if chord == Chord::BookmarkGo {
+                if !pending.replace(false) {
+                    return;
+                }
+                shortcuts.cancel_chord();
+            }
+            if browser.navigation_generation() != generation
                 || !preferences.tenxer_mode()
                 || !view.item_view_has_focus()
                 || view.keyboard_bookmark_folder() != origin
@@ -260,6 +276,8 @@ impl Dispatcher {
                     shortcuts.show_feedback(&rust_i18n::t!("Saved bookmark %{key}", key = key))
                 }
                 Ok(Some(_)) if unavailable => shortcuts
+                    .show_feedback(&rust_i18n::t!("Bookmark %{key} is unavailable", key = key)),
+                Err(error) if error.kind() == std::io::ErrorKind::InvalidData => shortcuts
                     .show_feedback(&rust_i18n::t!("Bookmark %{key} is unavailable", key = key)),
                 Ok(Some(path)) => {
                     view.keyboard_navigation();

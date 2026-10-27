@@ -49,6 +49,7 @@ fn letter_bookmarks_refuse_invalid_input_and_preserve_corrupt_state() {
     }
     std::fs::write(&store, b"not JSON").expect("corrupt store");
     assert!(read(&store, 'a').is_err());
+    assert!(read_all(&store).is_err());
     assert!(write(&store, 'a', Path::new("/absolute")).is_err());
     assert_eq!(std::fs::read(&store).expect("original data"), b"not JSON");
 }
@@ -76,9 +77,19 @@ fn letter_bookmarks_ignore_remote_uri_targets() {
         br#"{"entries":{"a":"sftp://example.test/private","Z":"file:///uppercase","b":"file:///local%20folder"}}"#,
     )
     .expect("remote entry");
-    assert_eq!(read(&store, 'a').expect("load remote mark"), None);
+    assert_eq!(
+        read(&store, 'a').expect_err("invalid remote mark").kind(),
+        io::ErrorKind::InvalidData
+    );
     assert_eq!(
         read_all(&store).expect("only usable menu entries"),
         vec![('b', PathBuf::from("/local folder")),]
     );
+    write(&store, 'c', Path::new("/new folder")).expect("repair during save");
+    let stored = load(&store).expect("repaired file");
+    assert_eq!(
+        stored.entries.keys().copied().collect::<Vec<_>>(),
+        vec!['b', 'c']
+    );
+    assert_eq!(read(&store, 'a').expect("removed remote entry"), None);
 }

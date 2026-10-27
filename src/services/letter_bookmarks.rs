@@ -33,11 +33,17 @@ fn load(path: &Path) -> io::Result<Bookmarks> {
 
 fn read(path: &Path, letter: char) -> io::Result<Option<PathBuf>> {
     let bookmarks = load(path)?;
-    Ok(bookmarks.entries.get(&letter).and_then(|uri| {
-        gio::File::for_uri(uri)
-            .path()
-            .filter(|path| path.is_absolute())
-    }))
+    bookmarks
+        .entries
+        .get(&letter)
+        .map(|uri| local_directory(uri).ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData)))
+        .transpose()
+}
+
+fn local_directory(uri: &str) -> Option<PathBuf> {
+    gio::File::for_uri(uri)
+        .path()
+        .filter(|path| path.is_absolute())
 }
 
 fn read_all(path: &Path) -> io::Result<Vec<(char, PathBuf)>> {
@@ -48,10 +54,7 @@ fn read_all(path: &Path) -> io::Result<Vec<(char, PathBuf)>> {
             if !letter.is_ascii_lowercase() {
                 return None;
             }
-            gio::File::for_uri(&uri)
-                .path()
-                .filter(|path| path.is_absolute())
-                .map(|path| (letter, path))
+            local_directory(&uri).map(|path| (letter, path))
         })
         .collect())
 }
@@ -64,6 +67,9 @@ fn write(path: &Path, letter: char, directory: &Path) -> io::Result<()> {
         ));
     }
     let mut bookmarks = load(path)?;
+    bookmarks
+        .entries
+        .retain(|slot, uri| slot.is_ascii_lowercase() && local_directory(uri).is_some());
     bookmarks
         .entries
         .insert(letter, gio::File::for_path(directory).uri().to_string());

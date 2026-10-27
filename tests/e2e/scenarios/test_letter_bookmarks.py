@@ -2,6 +2,7 @@
 """10xer letter marks follow the focused directory, not its selected child."""
 
 import json
+import shutil
 
 import pytest
 from harness.keyboard_layout import RUSSIAN, US
@@ -65,3 +66,37 @@ def test_letter_bookmarks_layout_fallback_and_cancel(strata, keyboard_layout, la
     with keyboard_layout(layout):
         chord(strata, "'", "z")
     strata.wait_for_directory(root.name)
+
+
+@pytest.mark.preferences(browser_mode="list", tenxer_mode=True, type_to_search=False)
+@pytest.mark.parametrize("remove_parent", [False, True], ids=["only-child", "parent"])
+def test_letter_bookmarks_failed_jump_keeps_current_directory(strata, remove_parent):
+    root = strata.fixture.root
+    parent = root / "bookmark-parent"
+    target = parent / "target"
+    target.mkdir(parents=True)
+
+    def go(path):
+        strata.keyboard.press("ctrl+l")
+        strata.keyboard.press("ctrl+a")
+        strata.keyboard.type_text(str(path))
+        strata.keyboard.press("Return")
+        strata.wait_for_directory(path.name)
+
+    go(target)
+    chord(strata, "m", "a")
+    strata.wait(lambda: marks(strata).get("a") == target.as_uri(), "saved target")
+    go(root)
+    strata.select_entry("readme.md")
+    if remove_parent:
+        shutil.rmtree(parent)
+        strata.wait_for_entry_gone(parent.name)
+    else:
+        target.rmdir()
+    chord(strata, "'", "a")
+    strata.wait(
+        lambda: strata.window.find(role="label", name="Bookmark a is unavailable"),
+        "unavailable bookmark feedback",
+    )
+    assert strata.current_directory() == root.name
+    assert strata.selected_names() == ["readme.md"]

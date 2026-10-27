@@ -2,13 +2,22 @@
 
 use super::*;
 
+mod review_regressions;
+
 fn mark(fixture: &KeyboardFixture, prefix: Key, letter: Key) {
     focus_files(fixture);
     fixture.shortcuts.dismiss_feedback();
     assert!(fixture.press(prefix, ModifierType::empty()));
     assert!(fixture.shortcuts.armed_chord().is_some());
     assert!(fixture.press(letter, ModifierType::empty()));
-    assert_eq!(fixture.shortcuts.armed_chord(), None);
+    assert_eq!(
+        fixture.shortcuts.armed_chord(),
+        if prefix == Key::apostrophe {
+            Some(crate::ui::tenxer_mode::Chord::BookmarkGo)
+        } else {
+            None
+        }
+    );
 }
 
 #[test]
